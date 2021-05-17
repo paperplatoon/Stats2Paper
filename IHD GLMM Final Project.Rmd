@@ -1,0 +1,808 @@
+---
+title: "IHD"
+output:
+  pdf_document: default
+  html_document: default
+---
+
+```{r setup, echo=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(dplyr)
+library(data.table)
+library(lme4)
+#install.packages("sampler")
+library(sampler)
+setwd("/Users/bb7/programming/RStudio")
+myData1 <- read.csv("Version10.csv")
+myData2 <- read.csv("pilotTest1.5ppl.csv")
+myData <- rbind(myData1, myData2)
+truncatedData <-myData[, c(12, 35, 39, 40, 48:52)]
+head(truncatedData)
+nrow(truncatedData)
+AttemptData <- truncatedData %>% filter(Attempt==1)
+TrialData <- AttemptData %>% filter(display != "practice")
+#this should be 160 * number of participants
+#nrow(TrialData)
+#head(TrialData)
+```
+
+## R Markdown
+For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
+
+```{r addingCols, echo=FALSE}
+topLeft <- c("IHD-1.jpg", "IHD-2.jpg", "IHD-3.jpg", "IHD-4.jpg",
+             "stimuli17.jpg", "stimuli18.jpg","stimuli19.jpg", "stimuli20.jpg",
+             "stimuli33.jpg", "stimuli34.jpg","stimuli35.jpg", "stimuli36.jpg",
+             "stimuli49.jpg", "stimuli50.jpg","stimuli51.jpg", "stimuli52.jpg",
+             "stimuli65.jpg", "stimuli66.jpg","stimuli67.jpg", "stimuli68.jpg")
+
+topRight <- c("IHD-5.jpg", "IHD-6.jpg", "IHD-7.jpg", "IHD-8.jpg",
+             "stimuli21.jpg", "stimuli22.jpg","stimuli23.jpg", "stimuli24.jpg",
+             "stimuli37.jpg", "stimuli38.jpg","stimuli39.jpg", "stimuli40.jpg",
+             "stimuli53.jpg", "stimuli54.jpg","stimuli55.jpg", "stimuli56.jpg",
+             "stimuli69.jpg", "stimuli70.jpg","stimuli71.jpg", "stimuli72.jpg")
+
+bottomLeft <- c("IHD-9.jpg", "IHD-10.jpg", "IHD-11.jpg", "IHD-12.jpg",
+              "stimuli25.jpg", "stimuli26.jpg","stimuli27.jpg", "stimuli28.jpg",
+              "stimuli41.jpg", "stimuli42.jpg","stimuli43.jpg", "stimuli44.jpg",
+              "stimuli57.jpg", "stimuli58.jpg","stimuli59.jpg", "stimuli60.jpg",
+              "stimuli73.jpg", "stimuli74.jpg","stimuli75.jpg", "stimuli76.jpg")
+
+TrialData$quadrant <- ifelse(TrialData$firstImage %in% topLeft, 'topLeft',
+                             ifelse(TrialData$firstImage %in% topRight, "topRight",
+                                    ifelse(TrialData$firstImage %in% bottomLeft, "bottomLeft", "bottomRight")))
+TrialData$isLeft <- ifelse(TrialData$quadrant == "topLeft" | TrialData$quadrant == "bottomLeft", 1, 0)
+TrialData$isTop <- ifelse(TrialData$quadrant == "topLeft" | TrialData$quadrant == "topRight", 1, 0)
+TrialData$isTopLeft <- ifelse(TrialData$quadrant == "topLeft", 1, 0)
+TrialData$isTopRight <- ifelse(TrialData$quadrant == "topRight", 1, 0)
+TrialData$isbottomRight <- ifelse(TrialData$quadrant == "bottomRight", 1, 0)
+TrialData$isbottomLeft <- ifelse(TrialData$quadrant == "bottomLeft", 1, 0)
+#head(TrialData)
+#View(TrialData)
+
+#splitting the data into unique participant IDs
+uniqueIDs <- unique(TrialData$Participant.Public.ID)
+#nrow(TrialData)/160
+#length(uniqueIDs)
+#View(TrialData)
+```
+
+## Produce Data Table
+
+Producing a data table summary of participants
+
+
+```{r functionTrialData, echo=FALSE}
+produce_participant_data <- function (listOfUniqueIDs, myTrialData) {
+  myTopLeftVals <- rep(NA, length(listOfUniqueIDs))
+  myTopRightVals <- rep(NA, length(listOfUniqueIDs))
+  myBottomLeftVals <- rep(NA, length(listOfUniqueIDs))
+  myBottomRightVals <- rep(NA, length(listOfUniqueIDs))
+  mySumCorrectVals <- rep(NA, length(listOfUniqueIDs))
+  myChiPVals <- rep(NA, length(listOfUniqueIDs))
+  myLeftMinusRightVals <- rep(NA, length(listOfUniqueIDs))
+  myTopMinusBottomVals <- rep(NA, length(listOfUniqueIDs))
+  myBiggestDiffVals <-rep(NA, length(listOfUniqueIDs))
+  meanRTVals <-rep(NA, length(listOfUniqueIDs))
+  for (i in 1:length(listOfUniqueIDs)) {
+    thisParticipantsData <- myTrialData %>% filter(Participant.Public.ID == listOfUniqueIDs[i])
+    thisParticipantsData$Reaction.Time <- as.numeric(thisParticipantsData$Reaction.Time)
+    
+    topLeftP1 <- sum(thisParticipantsData$quadrant == "topLeft" & thisParticipantsData$Correct == "1")
+    topRightP1 <- sum(thisParticipantsData$quadrant == "topRight" & thisParticipantsData$Correct == "1")
+    bottomLeftP1 <- sum(thisParticipantsData$quadrant == "bottomLeft" & thisParticipantsData$Correct == "1")
+    bottomRightP1 <- sum(thisParticipantsData$quadrant == "bottomRight" & thisParticipantsData$Correct == "1")
+    
+    P1DataBreakdown <- c(topLeftP1, topRightP1, bottomLeftP1, bottomRightP1)
+    P1DataBreakdown
+    P1Chi <- chisq.test(P1DataBreakdown, p = c(1/4, 1/4, 1/4, 1/4))
+
+    myTopLeftVals[i] <- topLeftP1
+    myTopRightVals[i] <- topRightP1
+    myBottomLeftVals[i] <- bottomLeftP1
+    myBottomRightVals[i] <- bottomRightP1
+    mySumCorrectVals[i] <- sum(thisParticipantsData$Correct)
+    myChiPVals[i] <- P1Chi$p.value
+    myLeftMinusRightVals[i] <- (topLeftP1+bottomLeftP1) - (topRightP1+bottomRightP1)
+    myTopMinusBottomVals[i] <- (topLeftP1 + topRightP1) - (bottomLeftP1+bottomRightP1)
+    myBiggestDiffVals[i] <- max(P1DataBreakdown) - min(P1DataBreakdown)
+    meanRTVals[i] <- mean(thisParticipantsData$Reaction.Time)
+  }
+  
+  myDataTable <- data.table(
+    "ParticipantID" = listOfUniqueIDs,
+    "TL" = myTopLeftVals,
+    "TR" = myTopRightVals,
+    "BL" = myBottomLeftVals,
+    "BR" = myBottomRightVals,
+    "Correct" = mySumCorrectVals,
+    "ChiSq p-val" = myChiPVals,
+    "Left-Right" = myLeftMinusRightVals,
+    "Top-Bottom" = myTopMinusBottomVals,
+    "BiggestDiff" = myBiggestDiffVals,
+    "MeanRT" = meanRTVals
+  )
+  return(myDataTable)
+}
+
+#myParticipantData <- produce_participant_data(uniqueIDs, TrialData)
+#myParticipantData
+```
+
+Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.
+
+```{r setup questionnaire, echo=FALSE}
+setwd("/Users/bb7/programming/RStudio")
+QuestionnaireData1 <- read.csv("questionnaire5ppl.csv")
+QuestionnaireData2 <- read.csv("Questionnaire32ppl.csv")
+QuestionnaireFullData <- rbind(QuestionnaireData1, QuestionnaireData2)
+nrow(QuestionnaireFullData)
+#View(QuestionData)
+#which(colnames(myData)=="Reaction.Time")
+QuestionData <-QuestionnaireFullData[, c(12, 28, 29)]
+#head(QuestionData)
+nrow(QuestionData)
+#View(QuestionData)
+truncatedQuestionData <- filter(QuestionData, Question.Key == "gender-demo-q" | 
+         Question.Key == "hand-demo-q" |
+         Question.Key == "glasses-demo-q" |
+         Question.Key == "ethnicity-demo-q" |
+         Question.Key == "education-demo-q" |
+         Question.Key == "age-demo-q" |
+         Question.Key == "colorblind-demo-q" 
+         )
+head(truncatedQuestionData)
+nrow(truncatedQuestionData)
+
+```
+
+```{r QuestionDataTransform, echo=FALSE}
+#View(truncatedQuestionData)
+myVectorUniqueQuestionIDs <- unique(truncatedQuestionData$Participant.Public.ID)
+length(myVectorUniqueQuestionIDs)
+
+truncatedQuestionData <- truncatedQuestionData %>% mutate(isMale = case_when(
+                                                            Response == "Male" ~ 1,
+                                                            Response == "Female" ~ 0,
+                                                            Response == "Prefer Not to Answer" ~ 0,
+                                                            Response == "Other (please specify)" ~ 0,
+                                                            ))
+myGenders <- filter(truncatedQuestionData, isMale == 1 | isMale == 0)
+myVectorIsMale <- myGenders$isMale
+length(myVectorIsMale)
+
+truncatedQuestionData <- truncatedQuestionData %>% mutate(isRightHanded = case_when(
+                                                            Response == "Right" ~ 1,
+                                                            Response == "Left" ~ 0,
+                                                            Response == "I use both equally" ~ 0
+                                                            ))
+myHands <- filter(truncatedQuestionData, isRightHanded == 1 | isRightHanded == 0)
+myVectorHands <- myHands$isRightHanded
+length(myVectorHands)
+
+truncatedQuestionData <- truncatedQuestionData %>% mutate(wearsGlasses = case_when(
+                                                            Response == "No" ~ 0,
+                                                            Response == "Yes" ~ 1,
+                                                            ))
+myGlasses <- filter(truncatedQuestionData, wearsGlasses == 1 | wearsGlasses == 0)
+myVectorGlasses <- myGlasses$wearsGlasses
+length(myVectorGlasses)
+
+truncatedQuestionData <- truncatedQuestionData %>% mutate(isWhite = case_when(
+                                                            Response == "Caucasian" ~ 1,
+                                                            Response == "African-American" ~ 0,
+                                                            Response == "Asian" ~ 0,
+                                                            Response == "Latino or Hispanic" ~ 0,
+                                                            Response == "I prefer not to say" & Question.Key == "ethnicity-demo-q" ~ 0,
+                                                            ))
+Ethnicities <- filter(truncatedQuestionData, isWhite == 1 | isWhite == 0)
+myVectorEthnicities <- Ethnicities$isWhite
+length(myVectorEthnicities)
+
+
+truncatedQuestionData <- truncatedQuestionData %>% mutate(collegeGrad = case_when(
+                                                            Response == "Graduate degree" ~ 1,
+                                                            Response == "Undergraduate degree" ~ 1,
+                                                            Response == "Some graduate schooling" ~ 1,
+                                                            Response == "High school degree" ~ 1,
+                                                            Response == "Some college" ~ 1,
+                                                            Response == "I prefer not to say" & Question.Key == "education-demo-q" ~ 0
+                                                            ))
+Schooling <- filter(truncatedQuestionData, collegeGrad == 1 | collegeGrad == 0)
+myVectorSchooling <- Schooling$collegeGrad
+length(myVectorSchooling)
+
+truncatedQuestionData <- truncatedQuestionData %>% mutate(ageLevel = case_when(
+                                                            Response == "18-24" ~ 1,
+                                                            Response == "24-29" ~ 2,
+                                                            Response == "30-35" ~ 3,
+                                                            Response == "Prefer not to answer" & Question.Key == "age-demo-q" ~ 1
+                                                            ))
+Ages <- filter(truncatedQuestionData, ageLevel == 1 | ageLevel == 2 | ageLevel == 3)
+myVectorAges <- Ages$ageLevel
+length(myVectorAges)
+
+truncatedQuestionData <- truncatedQuestionData %>% mutate(isColorblind = case_when(
+                                                            Response == "No - I never mistake one color for another" ~ 0,
+                                                            Response == "No - I rarely mistake one color for another" ~ 0,
+                                                            Response == "Yes - I sometimes mistake one color for another" ~ 1,
+                                                            Response == "Yes - I often mistake one color for another" ~ 1
+                                                            ))
+colorBlind <- filter(truncatedQuestionData, isColorblind == 1 | isColorblind == 0)
+myVectorColorblind <- colorBlind$isColorblind
+length(myVectorColorblind)
+
+
+
+```
+
+``` {r createQuestionDataFrame}
+#View(truncatedQuestionData)
+myVectorUniqueQuestionIDs
+myVectorIsMale
+myVectorGlasses
+myVectorHands
+myVectorEthnicities
+myVectorSchooling
+myVectorAges
+myVectorColorblind
+
+myQuestionnaireDT <-  data.table(
+    "ParticipantID" = myVectorUniqueQuestionIDs,
+    "isMale" = myVectorIsMale,
+    "wearsGlasses" = myVectorGlasses,
+    "isRightHanded" = myVectorHands,
+    "isWhite" = myVectorEthnicities,
+    "collegeGrad" = myVectorSchooling,
+    "ageLevel" = myVectorAges,
+    "isColorBlind" = myVectorColorblind
+  )
+View(myQuestionnaireDT)
+```
+
+``` {r checkDTs}
+#myCurrentQuestionnaireDT <- myQuestionnaireDT
+#View(myCurrentQuestionnaireDT)
+#FullQuestionnaireDT <- rbind(myCurrentQuestionnaireDT, myQuestionnaireDT)
+#View(FullQuestionnaireDT)
+#write.csv(FullQuestionnaireDT,"/Users/bb7/programming/RStudio/37pplQuestionnaireTable.csv")
+myFinalTrialData <- read.csv("37pplSummaryTable.csv")
+myFinalQuestionnaireData <- read.csv("37pplQuestionnaireTable.csv")
+nrow(myFinalQuestionnaireData)
+nrow(myFinalTrialData)
+#intersect(myFinalTrialData$Participant.ID, myFinalQuestionnaireData$ParticipantID)
+FullDataTableFinal <- merge(myFinalTrialData, myFinalQuestionnaireData, by.x = "Participant.ID", by.y = "ParticipantID")
+#View(FullDataTableFinal)
+```
+
+``` {r simpleModels, include=TRUE}
+#First we try to use all the data we collected (excluding groups of less than 5 ppl)
+TrialData <- TrialData %>% mutate(isMale = case_when(
+                                                            Participant.Public.ID == "5ebc5efb55e67d09d5aa98ed" ~ 1,
+                                                           Participant.Public.ID == "5daf354ecc21350014f642b5	" ~ 1,
+                                                           Participant.Public.ID == "55f63fc432af740012171ef6" ~ 1,
+                                                           Participant.Public.ID == "601b56a319565951c0e6a626" ~ 0,
+                                                           Participant.Public.ID == "6040a9e00259d12d4091b828" ~ 1,
+                                                           Participant.Public.ID == "607e53e98885809ed23e89a8" ~ 1,
+                                                           Participant.Public.ID == "608841496e9715786abdcd13" ~ 1,
+                                                           Participant.Public.ID == "605f9cfad4df69fcebaac11b" ~ 1,
+                                                           Participant.Public.ID == "6001d2a36c91490694873136" ~ 1,
+                                                           Participant.Public.ID == "5f700002b73efc5cb6f5b889" ~ 1,
+                                                           Participant.Public.ID == "5f49806859401418f7ec6764" ~ 1,
+                                                           Participant.Public.ID == "609bfd77f8b7b47117969b3c" ~ 0,
+                                                           Participant.Public.ID == "6096adfe01da012d7a56adcd" ~ 0,
+                                                           Participant.Public.ID == "5e416e22fb96eb000b3fe2a8" ~ 1,
+                                                           Participant.Public.ID == "609bf5487849aca88f4fdc07" ~ 1,
+                                                           Participant.Public.ID == "5f16f96f65243c01ecdda75c" ~ 1,
+                                                           Participant.Public.ID == "5dcc90820a493f92d077d6ec" ~ 1,
+                                                           Participant.Public.ID == "600f3bb4c3125f0d2a2f0d36" ~ 0,
+                                                           Participant.Public.ID == "6040fd9439931804385c89ec" ~ 0,
+                                                           Participant.Public.ID == "5fb33f857a6bcca804d8305d" ~ 0,
+                                                           Participant.Public.ID == "605923e2a9d57a958f023174	" ~ 1,
+                                                           Participant.Public.ID == "603d3cdf15614abfbe3a6229" ~ 0,
+                                                           Participant.Public.ID == "5e23849e42998a6218c584b6" ~ 0,
+                                                           Participant.Public.ID == "5f861becb8cacd158ebd9758" ~ 0,
+                                                           Participant.Public.ID == "604057cd5c4a2726713a9cd6" ~ 0,
+                                                           Participant.Public.ID == "5e8953f2e770eb5f55dfc4c0" ~ 1,
+                                                           Participant.Public.ID == "5a0a668492f37700015b1129" ~ 1,
+                                                           Participant.Public.ID == "55c43918fdf99b080551e044" ~ 1,
+                                                           Participant.Public.ID == "5eebb37e6c09cc12563f390b" ~ 1,
+                                                           Participant.Public.ID == "5d1b8ca0d057270001a0abca" ~ 0,
+                                                           Participant.Public.ID == "5a04869ff2e3460001edad2e" ~ 1,
+                                                           Participant.Public.ID == "60706be8e6ef3e0cbae6d3c8" ~ 1,
+                                                           Participant.Public.ID == "603ffa13fa433c1989bff9e3" ~ 1,
+                                                           Participant.Public.ID == "5f4d3cb5fdda0b2c403fb801" ~ 0,
+                                                           Participant.Public.ID == "5ef602a215622928f9abc045" ~ 1,
+                                                           Participant.Public.ID == "5f53ffa9a0830d765571ef78" ~ 0,
+                                                           Participant.Public.ID == "5f90581950d8520e8c7d3890" ~ 1,
+                                                           
+                                                            ))
+
+
+TrialData <- TrialData %>% mutate(isRightHanded = case_when(
+                                                            Participant.Public.ID == "5ebc5efb55e67d09d5aa98ed" ~ 1,
+                                                           Participant.Public.ID == "5daf354ecc21350014f642b5	" ~ 1,
+                                                           Participant.Public.ID == "55f63fc432af740012171ef6" ~ 1,
+                                                           Participant.Public.ID == "601b56a319565951c0e6a626" ~ 1,
+                                                           Participant.Public.ID == "6040a9e00259d12d4091b828" ~ 0,
+                                                           Participant.Public.ID == "607e53e98885809ed23e89a8" ~ 1,
+                                                           Participant.Public.ID == "608841496e9715786abdcd13" ~ 1,
+                                                           Participant.Public.ID == "605f9cfad4df69fcebaac11b" ~ 1,
+                                                           Participant.Public.ID == "6001d2a36c91490694873136" ~ 1,
+                                                           Participant.Public.ID == "5f700002b73efc5cb6f5b889" ~ 0,
+                                                           Participant.Public.ID == "5f49806859401418f7ec6764" ~ 1,
+                                                           Participant.Public.ID == "609bfd77f8b7b47117969b3c" ~ 1,
+                                                           Participant.Public.ID == "6096adfe01da012d7a56adcd" ~ 1,
+                                                           Participant.Public.ID == "5e416e22fb96eb000b3fe2a8" ~ 0,
+                                                           Participant.Public.ID == "609bf5487849aca88f4fdc07" ~ 1,
+                                                           Participant.Public.ID == "5f16f96f65243c01ecdda75c" ~ 1,
+                                                           Participant.Public.ID == "5dcc90820a493f92d077d6ec" ~ 1,
+                                                           Participant.Public.ID == "600f3bb4c3125f0d2a2f0d36" ~ 0,
+                                                           Participant.Public.ID == "6040fd9439931804385c89ec" ~ 1,
+                                                           Participant.Public.ID == "5fb33f857a6bcca804d8305d" ~ 1,
+                                                           Participant.Public.ID == "605923e2a9d57a958f023174	" ~ 0,
+                                                           Participant.Public.ID == "603d3cdf15614abfbe3a6229" ~ 1,
+                                                           Participant.Public.ID == "5e23849e42998a6218c584b6" ~ 1,
+                                                           Participant.Public.ID == "5f861becb8cacd158ebd9758" ~ 1,
+                                                           Participant.Public.ID == "604057cd5c4a2726713a9cd6" ~ 1,
+                                                           Participant.Public.ID == "5e8953f2e770eb5f55dfc4c0" ~ 1,
+                                                           Participant.Public.ID == "5a0a668492f37700015b1129" ~ 1,
+                                                           Participant.Public.ID == "55c43918fdf99b080551e044" ~ 1,
+                                                           Participant.Public.ID == "5eebb37e6c09cc12563f390b" ~ 1,
+                                                           Participant.Public.ID == "5d1b8ca0d057270001a0abca" ~ 1,
+                                                           Participant.Public.ID == "5a04869ff2e3460001edad2e" ~ 1,
+                                                           Participant.Public.ID == "60706be8e6ef3e0cbae6d3c8" ~ 1,
+                                                           Participant.Public.ID == "603ffa13fa433c1989bff9e3" ~ 1,
+                                                           Participant.Public.ID == "5f4d3cb5fdda0b2c403fb801" ~ 1,
+                                                           Participant.Public.ID == "5ef602a215622928f9abc045" ~ 1,
+                                                           Participant.Public.ID == "5f53ffa9a0830d765571ef78" ~ 0,
+                                                           Participant.Public.ID == "5f90581950d8520e8c7d3890" ~ 1,
+                                                           
+                                                            ))
+
+TrialData <- TrialData %>% mutate(collegeGrad = case_when(
+                                                            Participant.Public.ID == "55c43918fdf99b080551e044" ~ 0,
+                                                           Participant.Public.ID == "55f63fc432af740012171ef6	" ~ 1,
+                                                           Participant.Public.ID == "5a04869ff2e3460001edad2e" ~ 0,
+                                                           Participant.Public.ID == "5a0a668492f37700015b1129" ~ 0,
+                                                           Participant.Public.ID == "5d1b8ca0d057270001a0abca" ~ 1,
+                                                           Participant.Public.ID == "5daf354ecc21350014f642b5" ~ 1,
+                                                           Participant.Public.ID == "5dcc90820a493f92d077d6ec" ~ 0,
+                                                           Participant.Public.ID == "5e23849e42998a6218c584b6" ~ 1,
+                                                           Participant.Public.ID == "5e416e22fb96eb000b3fe2a8" ~ 1,
+                                                           Participant.Public.ID == "5e8953f2e770eb5f55dfc4c0" ~ 1,
+                                                           Participant.Public.ID == "5ebc5efb55e67d09d5aa98ed" ~ 1,
+                                                           Participant.Public.ID == "5eebb37e6c09cc12563f390b" ~ 1,
+                                                           Participant.Public.ID == "5ef602a215622928f9abc045" ~ 1,
+                                                           Participant.Public.ID == "5f16f96f65243c01ecdda75c" ~ 1,
+                                                           Participant.Public.ID == "5f49806859401418f7ec6764" ~ 1,
+                                                           Participant.Public.ID == "5f4d3cb5fdda0b2c403fb801" ~ 0,
+                                                           Participant.Public.ID == "5f53ffa9a0830d765571ef78" ~ 1,
+                                                           Participant.Public.ID == "5f700002b73efc5cb6f5b889" ~ 0,
+                                                           Participant.Public.ID == "5f861becb8cacd158ebd9758" ~ 0,
+                                                           Participant.Public.ID == "5f90581950d8520e8c7d3890	" ~ 1,
+                                                           Participant.Public.ID == "5fb33f857a6bcca804d8305d" ~ 1,
+                                                           Participant.Public.ID == "6001d2a36c91490694873136" ~ 0,
+                                                           Participant.Public.ID == "600f3bb4c3125f0d2a2f0d36" ~ 0,
+                                                           Participant.Public.ID == "601b56a319565951c0e6a626" ~ 1,
+                                                           Participant.Public.ID == "603d3cdf15614abfbe3a6229" ~ 0,
+                                                           Participant.Public.ID == "603ffa13fa433c1989bff9e3" ~ 0,
+                                                           Participant.Public.ID == "604057cd5c4a2726713a9cd6" ~ 1,
+                                                           Participant.Public.ID == "6040a9e00259d12d4091b828" ~ 1,
+                                                           Participant.Public.ID == "6040fd9439931804385c89ec" ~ 1,
+                                                           Participant.Public.ID == "605923e2a9d57a958f023174" ~ 1,
+                                                           Participant.Public.ID == "605f9cfad4df69fcebaac11b" ~ 1,
+                                                           Participant.Public.ID == "60706be8e6ef3e0cbae6d3c8" ~ 0,
+                                                           Participant.Public.ID == "607e53e98885809ed23e89a8" ~ 1,
+                                                           Participant.Public.ID == "608841496e9715786abdcd13" ~ 0,
+                                                           Participant.Public.ID == "6096adfe01da012d7a56adcd" ~ 1,
+                                                           Participant.Public.ID == "609bf5487849aca88f4fdc07" ~ 0,
+                                                           Participant.Public.ID == "609bfd77f8b7b47117969b3c" ~ 0,
+                                                            ))
+
+TrialData <- TrialData %>% mutate(ageLevel = case_when(
+                                                            Participant.Public.ID == "55c43918fdf99b080551e044" ~ 3,
+                                                           Participant.Public.ID == "55f63fc432af740012171ef6	" ~ 2,
+                                                           Participant.Public.ID == "5a04869ff2e3460001edad2e" ~ 3,
+                                                           Participant.Public.ID == "5a0a668492f37700015b1129" ~ 2,
+                                                           Participant.Public.ID == "5d1b8ca0d057270001a0abca" ~ 1,
+                                                           Participant.Public.ID == "5daf354ecc21350014f642b5" ~ 1,
+                                                           Participant.Public.ID == "5dcc90820a493f92d077d6ec" ~ 1,
+                                                           Participant.Public.ID == "5e23849e42998a6218c584b6" ~ 1,
+                                                           Participant.Public.ID == "5e416e22fb96eb000b3fe2a8" ~ 2,
+                                                           Participant.Public.ID == "5e8953f2e770eb5f55dfc4c0" ~ 2,
+                                                           Participant.Public.ID == "5ebc5efb55e67d09d5aa98ed" ~ 3,
+                                                           Participant.Public.ID == "5eebb37e6c09cc12563f390b" ~ 3,
+                                                           Participant.Public.ID == "5ef602a215622928f9abc045" ~ 1,
+                                                           Participant.Public.ID == "5f16f96f65243c01ecdda75c" ~ 3,
+                                                           Participant.Public.ID == "5f49806859401418f7ec6764" ~ 1,
+                                                           Participant.Public.ID == "5f4d3cb5fdda0b2c403fb801" ~ 2,
+                                                           Participant.Public.ID == "5f53ffa9a0830d765571ef78" ~ 2,
+                                                           Participant.Public.ID == "5f700002b73efc5cb6f5b889" ~ 3,
+                                                           Participant.Public.ID == "5f861becb8cacd158ebd9758" ~ 1,
+                                                           Participant.Public.ID == "5f90581950d8520e8c7d3890	" ~ 3,
+                                                           Participant.Public.ID == "5fb33f857a6bcca804d8305d" ~ 2,
+                                                           Participant.Public.ID == "6001d2a36c91490694873136" ~ 1,
+                                                           Participant.Public.ID == "600f3bb4c3125f0d2a2f0d36" ~ 3,
+                                                           Participant.Public.ID == "601b56a319565951c0e6a626" ~ 1,
+                                                           Participant.Public.ID == "603d3cdf15614abfbe3a6229" ~ 2,
+                                                           Participant.Public.ID == "603ffa13fa433c1989bff9e3" ~ 2,
+                                                           Participant.Public.ID == "604057cd5c4a2726713a9cd6" ~ 2,
+                                                           Participant.Public.ID == "6040a9e00259d12d4091b828" ~ 2,
+                                                           Participant.Public.ID == "6040fd9439931804385c89ec" ~ 2,
+                                                           Participant.Public.ID == "605923e2a9d57a958f023174" ~ 2,
+                                                           Participant.Public.ID == "605f9cfad4df69fcebaac11b" ~ 2,
+                                                           Participant.Public.ID == "60706be8e6ef3e0cbae6d3c8" ~ 1,
+                                                           Participant.Public.ID == "607e53e98885809ed23e89a8" ~ 3,
+                                                           Participant.Public.ID == "608841496e9715786abdcd13" ~ 1,
+                                                           Participant.Public.ID == "6096adfe01da012d7a56adcd" ~ 2,
+                                                           Participant.Public.ID == "609bf5487849aca88f4fdc07" ~ 1,
+                                                           Participant.Public.ID == "609bfd77f8b7b47117969b3c" ~ 1,
+                                                            ))
+
+TrialData <- TrialData %>% mutate(isColorblind = case_when(
+                                                            Participant.Public.ID == "55c43918fdf99b080551e044" ~ 0,
+                                                           Participant.Public.ID == "55f63fc432af740012171ef6	" ~ 1,
+                                                           Participant.Public.ID == "5a04869ff2e3460001edad2e" ~ 0,
+                                                           Participant.Public.ID == "5a0a668492f37700015b1129" ~ 0,
+                                                           Participant.Public.ID == "5d1b8ca0d057270001a0abca" ~ 0,
+                                                           Participant.Public.ID == "5daf354ecc21350014f642b5" ~ 1,
+                                                           Participant.Public.ID == "5dcc90820a493f92d077d6ec" ~ 0,
+                                                           Participant.Public.ID == "5e23849e42998a6218c584b6" ~ 0,
+                                                           Participant.Public.ID == "5e416e22fb96eb000b3fe2a8" ~ 0,
+                                                           Participant.Public.ID == "5e8953f2e770eb5f55dfc4c0" ~ 0,
+                                                           Participant.Public.ID == "5ebc5efb55e67d09d5aa98ed" ~ 0,
+                                                           Participant.Public.ID == "5eebb37e6c09cc12563f390b" ~ 1,
+                                                           Participant.Public.ID == "5ef602a215622928f9abc045" ~ 0,
+                                                           Participant.Public.ID == "5f16f96f65243c01ecdda75c" ~ 0,
+                                                           Participant.Public.ID == "5f49806859401418f7ec6764" ~ 0,
+                                                           Participant.Public.ID == "5f4d3cb5fdda0b2c403fb801" ~ 0,
+                                                           Participant.Public.ID == "5f53ffa9a0830d765571ef78" ~ 0,
+                                                           Participant.Public.ID == "5f700002b73efc5cb6f5b889" ~ 1,
+                                                           Participant.Public.ID == "5f861becb8cacd158ebd9758" ~ 0,
+                                                           Participant.Public.ID == "5f90581950d8520e8c7d3890	" ~ 1,
+                                                           Participant.Public.ID == "5fb33f857a6bcca804d8305d" ~ 0,
+                                                           Participant.Public.ID == "6001d2a36c91490694873136" ~ 0,
+                                                           Participant.Public.ID == "600f3bb4c3125f0d2a2f0d36" ~ 0,
+                                                           Participant.Public.ID == "601b56a319565951c0e6a626" ~ 0,
+                                                           Participant.Public.ID == "603d3cdf15614abfbe3a6229" ~ 0,
+                                                           Participant.Public.ID == "603ffa13fa433c1989bff9e3" ~ 0,
+                                                           Participant.Public.ID == "604057cd5c4a2726713a9cd6" ~ 0,
+                                                           Participant.Public.ID == "6040a9e00259d12d4091b828" ~ 0,
+                                                           Participant.Public.ID == "6040fd9439931804385c89ec" ~ 0,
+                                                           Participant.Public.ID == "605923e2a9d57a958f023174" ~ 0,
+                                                           Participant.Public.ID == "605f9cfad4df69fcebaac11b" ~ 1,
+                                                           Participant.Public.ID == "60706be8e6ef3e0cbae6d3c8" ~ 1,
+                                                           Participant.Public.ID == "607e53e98885809ed23e89a8" ~ 0,
+                                                           Participant.Public.ID == "608841496e9715786abdcd13" ~ 0,
+                                                           Participant.Public.ID == "6096adfe01da012d7a56adcd" ~ 1,
+                                                           Participant.Public.ID == "609bf5487849aca88f4fdc07" ~ 0,
+                                                           Participant.Public.ID == "609bfd77f8b7b47117969b3c" ~ 0,
+                                                            ))
+View(TrialData)
+```
+Intro
+The military is interested in determining whether or not soldiers might perform better if their virtual reality menus are placed in different locations on the screen. This study seeks to determine if performance on a change detection task is impacted by any of four potential placements (top left, top right, bottom left, and bottom right) of the objects in question. It also looks at various other variables to determine if odds of of answering correctly is impacted by demographic variables that have sometimes in the past been associated wiith visual performance (such as age or education level). 
+
+Methods
+Participants are briefly shown a group of objects in one of four visual hemifields (top left, top right, bottom left, and bottom right), followed by a blank screen, followed by the same group of objects. On half of the trials, one of the objects has changed, and on the other half the objects remain the same. Participants are asked to indicate if the objects have changed. 
+
+Design
+We aim to determine participants' odds of answering correctly based on whether or not they're a college grad, if they're colorblind, their dominant hand, their gender, and their age (bucketed into 19-24, 24-29, and 30-35 for anonymity reasons). We also look at whether or not the four different visual hemifields in which the stimulus was presented impacts their chances of answering correctly. Since some past research has also found that some groups have a left hemifield advantage and a top hemifield advantage, we also examine if the side in which the objects were presented impacts performance (one analysis looking at left-of-center vs right-of-center performance, and another looking at top vs bottom performance). The variables manipulated between participants are the gender, age, dominant hand, and education level, while the visual hemifield is repeated within participants.  
+
+Data Analysis
+We use a mixed effects logistic regression to model our binary outcome variable (correct vs incorrect answers). We hold gender, age, dominant hand, education level, and visual hemifield as fixed effects, and also include a random effect for the participants, as we expect some participants to be naturally better at detecting changes than others. We do not expect any interactions between any of the variables.
+
+Results
+When splitting the visual hemifields into four different qudarants (top left, top right, bottom left, and bottom right), we find that the average likelihood of answering correctly is 0.79, F(8, 29), p=.005, 95% CI [0.24, 1]. The participant being male is associated with a -0.28 decrease in answering correctly, F(8, 29), p=.035, 95% CI [-0.54, -0.02]. No other variables, including visual hemifield, are significantly associated with the chance of answering correctly. We observe very little correlation between any of the fixed effects; the largest is a correlation between age level and handedness (0.334), which we reject as potentially meaningful both on the grounds of being a weak correlation and on the grounds of common sense (there is no reason to expect handedness to be associated with age, as people do not change handedness as they age). When running the analysis again looking at left-vs-right hemifield or top-vs-bottom hemifield, we find no significant effects of either.
+``` {r simpleModels, include=TRUE}
+firstModel <- glmer(Correct ~ collegeGrad + isMale + isRightHanded + ageLevel + isColorblind + isTopLeft + isTopRight + isbottomLeft + (1 | Participant.Public.ID), data = TrialData, family = binomial)
+
+summary(firstModel)
+isMaleLCI1 <- -0.278079 + (1.96*0.131589)
+isMaleUCI1 <- -0.278079 - (1.96*0.131589)
+
+secondModel <- glmer(Correct ~ collegeGrad + isMale + isRightHanded + ageLevel + isColorblind + isTop + (1 | Participant.Public.ID), data = TrialData, family = binomial)
+summary(secondModel)
+
+thirdModel <- glmer(Correct ~ collegeGrad + isMale + isRightHanded + ageLevel + isColorblind + isLeft + (1 | Participant.Public.ID), data = TrialData, family = binomial)
+summary(thirdModel)
+```
+
+We are confident from the relatively high p-values on visual hemifield that either the visual hemifields are not significantly associated with performance, or else our sample sizes are simply too small to determine p-values. Because we only have 37 different participants, we are curious whether or not a sample size with more participants would reveal significant effects. To this end, we use sampling to create significantly larger sample sizes for our dataset, by creating pseudo-participants (by sampling from within a single participant). This way, we increase our current sample size from 37 to over 180, while preserving the potential dynamics of accuracy differences within participants.    
+
+``` {r sampling}
+#First we try to use all the data we collected (excluding groups of less than 5 ppl)
+Participant1 <- subset (TrialData, Participant.Public.ID=='55c43918fdf99b080551e044')
+Participant2 <- subset (TrialData, Participant.Public.ID=='55f63fc432af740012171ef6')
+Participant3 <- subset (TrialData, Participant.Public.ID=='5a04869ff2e3460001edad2e')
+Participant4 <- subset (TrialData, Participant.Public.ID=='5a0a668492f37700015b1129')
+Participant5 <- subset (TrialData, Participant.Public.ID=='5d1b8ca0d057270001a0abca')
+Participant6 <- subset (TrialData, Participant.Public.ID=='5daf354ecc21350014f642b5')
+Participant7 <- subset (TrialData, Participant.Public.ID=='5dcc90820a493f92d077d6ec')
+Participant8 <- subset (TrialData, Participant.Public.ID=='5e23849e42998a6218c584b6')
+Participant9 <- subset (TrialData, Participant.Public.ID=='5e416e22fb96eb000b3fe2a8')
+Participant10 <- subset (TrialData, Participant.Public.ID=='5e8953f2e770eb5f55dfc4c0')
+Participant11 <- subset (TrialData, Participant.Public.ID=='5ebc5efb55e67d09d5aa98ed')
+Participant12 <- subset (TrialData, Participant.Public.ID=='5eebb37e6c09cc12563f390b')
+Participant13 <- subset (TrialData, Participant.Public.ID=='5ef602a215622928f9abc045')
+Participant14 <- subset (TrialData, Participant.Public.ID=='5f16f96f65243c01ecdda75c')
+Participant15 <- subset (TrialData, Participant.Public.ID=='5f49806859401418f7ec6764')
+Participant16 <- subset (TrialData, Participant.Public.ID=='5f4d3cb5fdda0b2c403fb801')
+Participant17 <- subset (TrialData, Participant.Public.ID=='5f53ffa9a0830d765571ef78	')
+Participant18 <- subset (TrialData, Participant.Public.ID=='5f700002b73efc5cb6f5b889')
+Participant19 <- subset (TrialData, Participant.Public.ID=='5f861becb8cacd158ebd9758')
+Participant20 <- subset (TrialData, Participant.Public.ID=='5f90581950d8520e8c7d3890')
+Participant21 <- subset (TrialData, Participant.Public.ID=='5fb33f857a6bcca804d8305d')
+Participant22 <- subset (TrialData, Participant.Public.ID=='6001d2a36c91490694873136')
+Participant23 <- subset (TrialData, Participant.Public.ID=='600f3bb4c3125f0d2a2f0d36')
+Participant24 <- subset (TrialData, Participant.Public.ID=='601b56a319565951c0e6a626')
+Participant25 <- subset (TrialData, Participant.Public.ID=='603d3cdf15614abfbe3a6229')
+Participant26 <- subset (TrialData, Participant.Public.ID=='603ffa13fa433c1989bff9e3')
+Participant27 <- subset (TrialData, Participant.Public.ID=='604057cd5c4a2726713a9cd6')
+Participant28 <- subset (TrialData, Participant.Public.ID=='6040a9e00259d12d4091b828')
+Participant29 <- subset (TrialData, Participant.Public.ID=='6040fd9439931804385c89ec')
+Participant30 <- subset (TrialData, Participant.Public.ID=='605923e2a9d57a958f023174')
+Participant31 <- subset (TrialData, Participant.Public.ID=='605f9cfad4df69fcebaac11b')
+Participant32 <- subset (TrialData, Participant.Public.ID=='60706be8e6ef3e0cbae6d3c8')
+Participant33 <- subset (TrialData, Participant.Public.ID=='607e53e98885809ed23e89a8')
+Participant34 <- subset (TrialData, Participant.Public.ID=='608841496e9715786abdcd13')
+Participant35 <- subset (TrialData, Participant.Public.ID=='6096adfe01da012d7a56adcd')
+Participant36 <- subset (TrialData, Participant.Public.ID=='609bf5487849aca88f4fdc07')
+Participant37 <- subset (TrialData, Participant.Public.ID=='609bfd77f8b7b47117969b3c')
+
+
+PseudoP1 <- rsamp(Participant1, 160, rep=TRUE)
+PseudoP2 <- rsamp(Participant1, 160, rep=TRUE)
+PseudoP3 <- rsamp(Participant1, 160, rep=TRUE)
+PseudoP4 <- rsamp(Participant1, 160, rep=TRUE)
+PseudoP5 <- rsamp(Participant1, 160, rep=TRUE)
+PseudoP6 <- rsamp(Participant2, 160, rep=TRUE)
+PseudoP7 <- rsamp(Participant2, 160, rep=TRUE)
+PseudoP8 <- rsamp(Participant2, 160, rep=TRUE)
+PseudoP9 <- rsamp(Participant2, 160, rep=TRUE)
+PseudoP10 <- rsamp(Participant2, 160, rep=TRUE)
+PseudoPs1 <- bind_rows(PseudoP1, PseudoP2, PseudoP3, PseudoP4, PseudoP5, PseudoP6, PseudoP7, PseudoP8, PseudoP9, PseudoP10)
+
+PseudoP11 <- rsamp(Participant3, 160, rep=TRUE)
+PseudoP12 <- rsamp(Participant3, 160, rep=TRUE)
+PseudoP13 <- rsamp(Participant3, 160, rep=TRUE)
+PseudoP14 <- rsamp(Participant3, 160, rep=TRUE)
+PseudoP15 <- rsamp(Participant3, 160, rep=TRUE)
+PseudoP16 <- rsamp(Participant4, 160, rep=TRUE)
+PseudoP17 <- rsamp(Participant4, 160, rep=TRUE)
+PseudoP18 <- rsamp(Participant4, 160, rep=TRUE)
+PseudoP19 <- rsamp(Participant4, 160, rep=TRUE)
+PseudoP20 <- rsamp(Participant4, 160, rep=TRUE)
+PseudoPs2 <- bind_rows(PseudoP11, PseudoP12, PseudoP13, PseudoP14, PseudoP15, PseudoP16, PseudoP17, PseudoP18, PseudoP19, PseudoP20)
+
+
+PseudoP21 <- rsamp(Participant5, 160, rep=TRUE)
+PseudoP22 <- rsamp(Participant5, 160, rep=TRUE)
+PseudoP23 <- rsamp(Participant5, 160, rep=TRUE)
+PseudoP24 <- rsamp(Participant5, 160, rep=TRUE)
+PseudoP25 <- rsamp(Participant5, 160, rep=TRUE)
+PseudoP26 <- rsamp(Participant6, 160, rep=TRUE)
+PseudoP27 <- rsamp(Participant6, 160, rep=TRUE)
+PseudoP28 <- rsamp(Participant6, 160, rep=TRUE)
+PseudoP29 <- rsamp(Participant6, 160, rep=TRUE)
+PseudoP30 <- rsamp(Participant6, 160, rep=TRUE)
+PseudoPs3 <- bind_rows(PseudoP21, PseudoP22, PseudoP23, PseudoP24, PseudoP25, PseudoP26, PseudoP27, PseudoP28, PseudoP29, PseudoP30)
+
+
+PseudoP31 <- rsamp(Participant7, 160, rep=TRUE)
+PseudoP32 <- rsamp(Participant7, 160, rep=TRUE)
+PseudoP33 <- rsamp(Participant7, 160, rep=TRUE)
+PseudoP34 <- rsamp(Participant7, 160, rep=TRUE)
+PseudoP35 <- rsamp(Participant7, 160, rep=TRUE)
+PseudoP36 <- rsamp(Participant8, 160, rep=TRUE)
+PseudoP37 <- rsamp(Participant8, 160, rep=TRUE)
+PseudoP38 <- rsamp(Participant8, 160, rep=TRUE)
+PseudoP39 <- rsamp(Participant8, 160, rep=TRUE)
+PseudoP40 <- rsamp(Participant8, 160, rep=TRUE)
+PseudoPs4 <- bind_rows(PseudoP31, PseudoP32, PseudoP33, PseudoP34, PseudoP35, PseudoP36, PseudoP37, PseudoP38, PseudoP39, PseudoP40)
+
+
+PseudoP41 <- rsamp(Participant9, 160, rep=TRUE)
+PseudoP42 <- rsamp(Participant9, 160, rep=TRUE)
+PseudoP43 <- rsamp(Participant9, 160, rep=TRUE)
+PseudoP44 <- rsamp(Participant9, 160, rep=TRUE)
+PseudoP45 <- rsamp(Participant9, 160, rep=TRUE)
+PseudoP46 <- rsamp(Participant10, 160, rep=TRUE)
+PseudoP47 <- rsamp(Participant10, 160, rep=TRUE)
+PseudoP48 <- rsamp(Participant10, 160, rep=TRUE)
+PseudoP49 <- rsamp(Participant10, 160, rep=TRUE)
+PseudoP50 <- rsamp(Participant10, 160, rep=TRUE)
+PseudoPs5 <- bind_rows(PseudoP41, PseudoP42, PseudoP43, PseudoP44, PseudoP45, PseudoP46, PseudoP47, PseudoP48, PseudoP49, PseudoP50)
+
+
+PseudoP51 <- rsamp(Participant11, 160, rep=TRUE)
+PseudoP52 <- rsamp(Participant11, 160, rep=TRUE)
+PseudoP53 <- rsamp(Participant11, 160, rep=TRUE)
+PseudoP54 <- rsamp(Participant11, 160, rep=TRUE)
+PseudoP55 <- rsamp(Participant11, 160, rep=TRUE)
+PseudoP56 <- rsamp(Participant12, 160, rep=TRUE)
+PseudoP57 <- rsamp(Participant12, 160, rep=TRUE)
+PseudoP58 <- rsamp(Participant12, 160, rep=TRUE)
+PseudoP59 <- rsamp(Participant12, 160, rep=TRUE)
+PseudoP60 <- rsamp(Participant12, 160, rep=TRUE)
+PseudoPs6 <- bind_rows(PseudoP51, PseudoP52, PseudoP53, PseudoP54, PseudoP55, PseudoP56, PseudoP57, PseudoP58, PseudoP59, PseudoP60)
+
+
+PseudoP61 <- rsamp(Participant13, 160, rep=TRUE)
+PseudoP62 <- rsamp(Participant13, 160, rep=TRUE)
+PseudoP63 <- rsamp(Participant13, 160, rep=TRUE)
+PseudoP64 <- rsamp(Participant13, 160, rep=TRUE)
+PseudoP65 <- rsamp(Participant13, 160, rep=TRUE)
+PseudoP66 <- rsamp(Participant14, 160, rep=TRUE)
+PseudoP67 <- rsamp(Participant14, 160, rep=TRUE)
+PseudoP68 <- rsamp(Participant14, 160, rep=TRUE)
+PseudoP69 <- rsamp(Participant14, 160, rep=TRUE)
+PseudoP70 <- rsamp(Participant14, 160, rep=TRUE)
+PseudoPs7 <- bind_rows(PseudoP61, PseudoP62, PseudoP63, PseudoP64, PseudoP65, PseudoP66, PseudoP67, PseudoP68, PseudoP69, PseudoP70)
+
+
+PseudoP71 <- rsamp(Participant15, 160, rep=TRUE)
+PseudoP72 <- rsamp(Participant15, 160, rep=TRUE)
+PseudoP73 <- rsamp(Participant15, 160, rep=TRUE)
+PseudoP74 <- rsamp(Participant15, 160, rep=TRUE)
+PseudoP75 <- rsamp(Participant15, 160, rep=TRUE)
+PseudoP76 <- rsamp(Participant16, 160, rep=TRUE)
+PseudoP77 <- rsamp(Participant16, 160, rep=TRUE)
+PseudoP78 <- rsamp(Participant16, 160, rep=TRUE)
+PseudoP79 <- rsamp(Participant16, 160, rep=TRUE)
+PseudoP80 <- rsamp(Participant16, 160, rep=TRUE)
+PseudoPs8 <- bind_rows(PseudoP71, PseudoP72, PseudoP73, PseudoP74, PseudoP75, PseudoP76, PseudoP77, PseudoP78, PseudoP79, PseudoP80)
+
+
+PseudoP86 <- rsamp(Participant18, 160, rep=TRUE)
+PseudoP87 <- rsamp(Participant18, 160, rep=TRUE)
+PseudoP88 <- rsamp(Participant18, 160, rep=TRUE)
+PseudoP89 <- rsamp(Participant18, 160, rep=TRUE)
+PseudoP90 <- rsamp(Participant18, 160, rep=TRUE)
+PseudoPs9 <- bind_rows(PseudoP86, PseudoP87, PseudoP88, PseudoP89, PseudoP90)
+
+
+PseudoP91 <- rsamp(Participant19, 160, rep=TRUE)
+PseudoP92 <- rsamp(Participant19, 160, rep=TRUE)
+PseudoP93 <- rsamp(Participant19, 160, rep=TRUE)
+PseudoP94 <- rsamp(Participant19, 160, rep=TRUE)
+PseudoP95 <- rsamp(Participant19, 160, rep=TRUE)
+PseudoP96 <- rsamp(Participant20, 160, rep=TRUE)
+PseudoP97 <- rsamp(Participant20, 160, rep=TRUE)
+PseudoP98 <- rsamp(Participant20, 160, rep=TRUE)
+PseudoP99 <- rsamp(Participant20, 160, rep=TRUE)
+PseudoP100 <- rsamp(Participant20, 160, rep=TRUE)
+PseudoPs10 <- bind_rows(PseudoP91, PseudoP92, PseudoP93, PseudoP94, PseudoP95, PseudoP96, PseudoP97, PseudoP98, PseudoP99, PseudoP100)
+
+
+PseudoPsFullFirstHalf <-  bind_rows(PseudoPs1, PseudoPs2, PseudoPs3, PseudoPs4, PseudoPs5, PseudoPs6, PseudoPs7, PseudoPs8, PseudoPs9, PseudoPs10)
+nrow(PseudoPsFullFirstHalf)
+
+PseudoP101 <- rsamp(Participant21, 160, rep=TRUE)
+PseudoP102 <- rsamp(Participant21, 160, rep=TRUE)
+PseudoP103 <- rsamp(Participant21, 160, rep=TRUE)
+PseudoP104 <- rsamp(Participant21, 160, rep=TRUE)
+PseudoP105 <- rsamp(Participant21, 160, rep=TRUE)
+PseudoP106 <- rsamp(Participant22, 160, rep=TRUE)
+PseudoP107 <- rsamp(Participant22, 160, rep=TRUE)
+PseudoP108 <- rsamp(Participant22, 160, rep=TRUE)
+PseudoP109 <- rsamp(Participant22, 160, rep=TRUE)
+PseudoP110 <- rsamp(Participant22, 160, rep=TRUE)
+PseudoPs11 <- bind_rows(PseudoP101, PseudoP102, PseudoP103, PseudoP104, PseudoP105, PseudoP106, PseudoP107, PseudoP108, PseudoP109, PseudoP110)
+
+
+PseudoP111 <- rsamp(Participant23, 160, rep=TRUE)
+PseudoP112 <- rsamp(Participant23, 160, rep=TRUE)
+PseudoP113 <- rsamp(Participant23, 160, rep=TRUE)
+PseudoP114 <- rsamp(Participant23, 160, rep=TRUE)
+PseudoP115 <- rsamp(Participant23, 160, rep=TRUE)
+PseudoP116 <- rsamp(Participant24, 160, rep=TRUE)
+PseudoP117 <- rsamp(Participant24, 160, rep=TRUE)
+PseudoP118 <- rsamp(Participant24, 160, rep=TRUE)
+PseudoP119 <- rsamp(Participant24, 160, rep=TRUE)
+PseudoP120 <- rsamp(Participant24, 160, rep=TRUE)
+PseudoPs12 <- bind_rows(PseudoP111, PseudoP112, PseudoP113, PseudoP114, PseudoP115, PseudoP116, PseudoP117, PseudoP118, PseudoP119, PseudoP120)
+
+PseudoP121 <- rsamp(Participant25, 160, rep=TRUE)
+PseudoP122 <- rsamp(Participant25, 160, rep=TRUE)
+PseudoP123 <- rsamp(Participant25, 160, rep=TRUE)
+PseudoP124 <- rsamp(Participant25, 160, rep=TRUE)
+PseudoP125 <- rsamp(Participant25, 160, rep=TRUE)
+PseudoP126 <- rsamp(Participant26, 160, rep=TRUE)
+PseudoP127 <- rsamp(Participant26, 160, rep=TRUE)
+PseudoP128 <- rsamp(Participant26, 160, rep=TRUE)
+PseudoP129 <- rsamp(Participant26, 160, rep=TRUE)
+PseudoP130 <- rsamp(Participant26, 160, rep=TRUE)
+PseudoPs13 <- bind_rows(PseudoP121, PseudoP122, PseudoP123, PseudoP124, PseudoP125, PseudoP126, PseudoP127, PseudoP128, PseudoP129, PseudoP130)
+
+PseudoP131 <- rsamp(Participant27, 160, rep=TRUE)
+PseudoP132 <- rsamp(Participant27, 160, rep=TRUE)
+PseudoP133 <- rsamp(Participant27, 160, rep=TRUE)
+PseudoP134 <- rsamp(Participant27, 160, rep=TRUE)
+PseudoP135 <- rsamp(Participant27, 160, rep=TRUE)
+PseudoP136 <- rsamp(Participant28, 160, rep=TRUE)
+PseudoP137 <- rsamp(Participant28, 160, rep=TRUE)
+PseudoP138 <- rsamp(Participant28, 160, rep=TRUE)
+PseudoP139 <- rsamp(Participant28, 160, rep=TRUE)
+PseudoP140 <- rsamp(Participant28, 160, rep=TRUE)
+PseudoPs14 <- bind_rows(PseudoP131, PseudoP132, PseudoP133, PseudoP134, PseudoP135, PseudoP136, PseudoP137, PseudoP138, PseudoP139, PseudoP140)
+
+PseudoP141 <- rsamp(Participant29, 160, rep=TRUE)
+PseudoP142 <- rsamp(Participant29, 160, rep=TRUE)
+PseudoP143 <- rsamp(Participant29, 160, rep=TRUE)
+PseudoP144 <- rsamp(Participant29, 160, rep=TRUE)
+PseudoP145 <- rsamp(Participant29, 160, rep=TRUE)
+PseudoP146 <- rsamp(Participant30, 160, rep=TRUE)
+PseudoP147 <- rsamp(Participant30, 160, rep=TRUE)
+PseudoP148 <- rsamp(Participant30, 160, rep=TRUE)
+PseudoP149 <- rsamp(Participant30, 160, rep=TRUE)
+PseudoP150 <- rsamp(Participant30, 160, rep=TRUE)
+PseudoPs15 <- bind_rows(PseudoP141, PseudoP142, PseudoP143, PseudoP144, PseudoP145, PseudoP146, PseudoP147, PseudoP148, PseudoP149, PseudoP150)
+
+PseudoP151 <- rsamp(Participant31, 160, rep=TRUE)
+PseudoP152 <- rsamp(Participant31, 160, rep=TRUE)
+PseudoP153 <- rsamp(Participant31, 160, rep=TRUE)
+PseudoP154 <- rsamp(Participant31, 160, rep=TRUE)
+PseudoP155 <- rsamp(Participant31, 160, rep=TRUE)
+PseudoP156 <- rsamp(Participant32, 160, rep=TRUE)
+PseudoP157 <- rsamp(Participant32, 160, rep=TRUE)
+PseudoP158 <- rsamp(Participant32, 160, rep=TRUE)
+PseudoP159 <- rsamp(Participant32, 160, rep=TRUE)
+PseudoP160 <- rsamp(Participant32, 160, rep=TRUE)
+PseudoPs16 <- bind_rows(PseudoP151, PseudoP152, PseudoP153, PseudoP154, PseudoP155, PseudoP156, PseudoP157, PseudoP158, PseudoP159, PseudoP160)
+
+
+PseudoP161 <- rsamp(Participant33, 160, rep=TRUE)
+PseudoP162 <- rsamp(Participant33, 160, rep=TRUE)
+PseudoP163 <- rsamp(Participant33, 160, rep=TRUE)
+PseudoP164 <- rsamp(Participant33, 160, rep=TRUE)
+PseudoP165 <- rsamp(Participant33, 160, rep=TRUE)
+PseudoP166 <- rsamp(Participant34, 160, rep=TRUE)
+PseudoP167 <- rsamp(Participant34, 160, rep=TRUE)
+PseudoP168 <- rsamp(Participant34, 160, rep=TRUE)
+PseudoP169 <- rsamp(Participant34, 160, rep=TRUE)
+PseudoP170 <- rsamp(Participant34, 160, rep=TRUE)
+PseudoPs17 <- bind_rows(PseudoP161, PseudoP162, PseudoP163, PseudoP164, PseudoP165, PseudoP166, PseudoP167, PseudoP168, PseudoP169, PseudoP170)
+
+PseudoP171 <- rsamp(Participant35, 160, rep=TRUE)
+PseudoP172 <- rsamp(Participant35, 160, rep=TRUE)
+PseudoP173 <- rsamp(Participant35, 160, rep=TRUE)
+PseudoP174 <- rsamp(Participant35, 160, rep=TRUE)
+PseudoP175 <- rsamp(Participant35, 160, rep=TRUE)
+PseudoP176 <- rsamp(Participant36, 160, rep=TRUE)
+PseudoP177 <- rsamp(Participant36, 160, rep=TRUE)
+PseudoP178 <- rsamp(Participant36, 160, rep=TRUE)
+PseudoP179 <- rsamp(Participant36, 160, rep=TRUE)
+PseudoP180 <- rsamp(Participant36, 160, rep=TRUE)
+PseudoPs18 <- bind_rows(PseudoP171, PseudoP172, PseudoP173, PseudoP174, PseudoP175, PseudoP176, PseudoP177, PseudoP178, PseudoP179, PseudoP180)
+
+
+PseudoP181 <- rsamp(Participant37, 160, rep=TRUE)
+PseudoP182 <- rsamp(Participant37, 160, rep=TRUE)
+PseudoP183 <- rsamp(Participant37, 160, rep=TRUE)
+PseudoP184 <- rsamp(Participant37, 160, rep=TRUE)
+PseudoP185 <- rsamp(Participant37, 160, rep=TRUE)
+PseudoPs19 <- bind_rows(PseudoP181, PseudoP182, PseudoP183, PseudoP184, PseudoP185)
+
+PseudoPsFullSecondHalf <-  bind_rows(PseudoPs11, PseudoPs12, PseudoPs13, PseudoPs14, PseudoPs15, PseudoPs16, PseudoPs17, PseudoPs18, PseudoPs19)
+nrow(PseudoPsFullFirstHalf)
+nrow(PseudoPsFullSecondHalf)
+
+PseudoPsFull <- bind_rows(PseudoPsFullFirstHalf, PseudoPsFullSecondHalf)
+nrow(PseudoPsFull)
+```
+View(PseudoPsFull)
+``` {r sampledModels, include=TRUE}
+firstModel <- glmer(Correct ~ collegeGrad + isMale + isRightHanded + ageLevel + isColorblind + isTopLeft + isTopRight + isbottomLeft + (1 | Participant.Public.ID), data = PseudoPsFull, family = binomial)
+summary(firstModel)
+
+isMaleLCI1 <- -0.278079 + (1.96*0.131589)
+isMaleUCI1 <- -0.278079 - (1.96*0.131589)
+
+secondModel <- glmer(Correct ~ collegeGrad + isMale + isRightHanded + ageLevel + isColorblind + isTop + (1 | Participant.Public.ID), data = PseudoPsFull, family = binomial)
+summary(secondModel)
+
+thirdModel <- glmer(Correct ~ collegeGrad + isMale + isRightHanded + ageLevel + isColorblind + isLeft + (1 | Participant.Public.ID), data = PseudoPsFull, family = binomial)
+summary(thirdModel)
+```
